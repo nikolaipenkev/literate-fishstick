@@ -62,8 +62,5 @@ redis-cli PING  # Should return PONG
 redis-cli FLUSHDB
 ```
 
-## 📜 License
-This project is licensed under the MIT License.
-
 ## 🤝 Contributing
 Pull requests are welcome! If you find bugs or have feature ideas, feel free to open an issue.
