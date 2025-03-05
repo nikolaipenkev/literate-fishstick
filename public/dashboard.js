@@ -18,7 +18,6 @@ document.addEventListener("DOMContentLoaded", function() {
         grid.load(JSON.parse(savedLayout));
     }
 
-    console.log("SEO Stats (from ERB):", seoStats);
 
     // Helper: Create a gauge chart (doughnut) for gauge-style metrics.
     function createGaugeChart(canvasId, value, maxValue, color) {
