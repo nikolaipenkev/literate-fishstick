@@ -28,87 +28,34 @@
     "Avg Meta Desc Length" => @seo_data.sum { |d| d["meta_description_length"].to_i } / @seo_data.count,
     "Missing ALT %" => @seo_data.sum { |d| d["missing_alt_percentage"].to_f } / @seo_data.count,
     "Word Count" => @seo_data.sum { |d| d["word_count"].to_i } / @seo_data.count,
-    "Internal Links" => @seo_data.sum { |d| d["internal_links"].to_i },
-    "External Links" => @seo_data.sum { |d| d["external_links"].to_i },
-    "Broken Links" => @seo_data.sum { |d| d["broken_links"].to_i },
+    "Internal Links" => @seo_data.sum { |d| d["internal_links"].to_i } / @seo_data.count,
+    "External Links" => @seo_data.sum { |d| d["external_links"].to_i } / @seo_data.count,
+    "Broken Links" => @seo_data.sum { |d| d["broken_links"].to_i } / @seo_data.count,
     "Page Size (KB)" => (@seo_data.sum { |d| d["page_size"].to_f } / 1024).round(2),
     "HTTPS Usage (%)" => (@seo_data.count { |d| d["is_https"] } * 100.0 / @seo_data.count).round(2),
     "Pages Without Meta Description" => @seo_data.count { |d| d["meta_description"].to_s.strip.empty? }
   } %>
 
+  <!-- Loop through each stat and create a chart -->
   <% seo_stats.each do |label, value| %>
-    <div class="grid-stack-item" gs-w="3" gs-h="2">
-      <div class="widget stat">
-        <h3><%= label %></h3>
-        <p class="big-number"><%= value %></p>
+    <div class="grid-stack-item" gs-w="3" gs-h="3">
+      <div class="widget chart">
+        <h3 class="widget-header"><%= label %></h3>
+        <div class="chart-container">
+          <canvas id="<%= label.gsub(/\s+/, '_').downcase %>Chart"></canvas>
+        </div>
       </div>
     </div>
   <% end %>
 
-  <!-- SEO Score Progress Bar -->
-  <div class="grid-stack-item" gs-w="3" gs-h="2">
-    <div class="widget progress">
-      <h3>SEO Score</h3>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: <%= seo_stats['HTTPS Usage (%)'] %>%;"></div>
-      </div>
-      <p><%= seo_stats["HTTPS Usage (%)"] %>% Secure</p>
-    </div>
-  </div>
-
-  <!-- Broken Links Status -->
-  <div class="grid-stack-item" gs-w="3" gs-h="2">
-    <div class="widget status <%= @seo_data.any? { |d| d["broken_links"].to_i > 0 } ? 'error' : 'ok' %>">
-      <h3>Broken Links Status</h3>
-      <p><%= @seo_data.sum { |d| d["broken_links"].to_i } > 0 ? "⚠ Issues Found" : "✅ All Good" %></p>
-    </div>
-  </div>
-
-  <!-- Google Analytics Usage (Pie Chart) -->
-  <div class="grid-stack-item" gs-w="3" gs-h="3">
-    <div class="widget chart">
-      <h3>Google Analytics Presence</h3>
-      <canvas id="gaChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Google Tag Manager Usage (Pie Chart) -->
-  <div class="grid-stack-item" gs-w="3" gs-h="3">
-    <div class="widget chart">
-      <h3>Google Tag Manager Presence</h3>
-      <canvas id="gtmChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Page Load Time (Bar Chart) -->
-  <div class="grid-stack-item" gs-w="3" gs-h="3">
-    <div class="widget chart">
-      <h3>Fastest & Slowest Page Load Times</h3>
-      <canvas id="loadTimeChart"></canvas>
-    </div>
-  </div>
-
-  <!-- H1, H2, H3 Distribution -->
-  <div class="grid-stack-item" gs-w="3" gs-h="3">
-    <div class="widget chart">
-      <h3>Heading Tags (H1, H2, H3) Distribution</h3>
-      <canvas id="headingChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Mobile Friendliness -->
-  <div class="grid-stack-item" gs-w="3" gs-h="2">
-    <div class="widget status <%= @seo_data.any? { |d| d["mobile_friendly"] == false } ? 'error' : 'ok' %>">
-      <h3>Mobile Friendliness</h3>
-      <p><%= @seo_data.any? { |d| d["mobile_friendly"] == false } ? "⚠ Some Issues" : "✅ All Good" %></p>
-    </div>
-  </div>
 </div>
 
+<!-- 🚀 Preload SEO Data for JavaScript -->
 <script>
     const seoData = <%= @seo_data.to_json %>;
+    const seoStats = <%= seo_stats.to_json %>;
 </script>
-<script src="/dashboard.js"></script>
 
+<script src="/dashboard.js"></script>
 </body>
 </html>
