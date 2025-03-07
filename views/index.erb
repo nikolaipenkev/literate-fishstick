@@ -2,58 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SEO Dashboard</title>
-  <link rel="stylesheet" href="/styles.css">
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack-all.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body class="bg-gray-900 text-white">
 
-<h1>SEO Dashboard</h1>
-<button class="reset-btn" id="resetButton">Reset Layout</button>
+<!-- Page Header -->
+<header class="p-6 text-center">
+  <h1 class="text-3xl font-bold">SEO Dashboard</h1>
+  <button class="mt-4 px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg" id="resetButton">
+    Reset Layout
+  </button>
+</header>
 
-<div class="grid-stack">
-  <!-- Total URLs Widget -->
-  <div class="grid-stack-item" gs-w="3" gs-h="2">
-    <div class="widget counter">
-      <h3>Total URLs Crawled</h3>
-      <p class="big-number"><%= @seo_data.count %></p>
-    </div>
-  </div>
-
-  <% seo_stats = {
-    "Avg Title Length" => @seo_data.sum { |d| d["title_length"].to_i } / @seo_data.count,
-    "Avg Meta Desc Length" => @seo_data.sum { |d| d["meta_description_length"].to_i } / @seo_data.count,
-    "Missing ALT %" => @seo_data.sum { |d| d["missing_alt_percentage"].to_f } / @seo_data.count,
-    "Word Count" => @seo_data.sum { |d| d["word_count"].to_i } / @seo_data.count,
-    "Internal Links" => @seo_data.sum { |d| d["internal_links"].to_i } / @seo_data.count,
-    "External Links" => @seo_data.sum { |d| d["external_links"].to_i } / @seo_data.count,
-    "Broken Links" => @seo_data.sum { |d| d["broken_links"].to_i } / @seo_data.count,
-    "Page Size (KB)" => (@seo_data.sum { |d| d["page_size"].to_f } / 1024).round(2),
-    "HTTPS Usage (%)" => (@seo_data.count { |d| d["is_https"] } * 100.0 / @seo_data.count).round(2),
-    "Pages Without Meta Description" => @seo_data.count { |d| d["meta_description"].to_s.strip.empty? }
-  } %>
-
-  <!-- Loop through each stat and create a chart -->
-  <% seo_stats.each do |label, value| %>
-    <div class="grid-stack-item" gs-w="3" gs-h="3">
-      <div class="widget chart">
-        <h3 class="widget-header"><%= label %></h3>
-        <div class="chart-container">
-          <canvas id="<%= label.gsub(/\s+/, '_').downcase %>Chart"></canvas>
-        </div>
-      </div>
-    </div>
-  <% end %>
-
+<!-- URL Input Form -->
+<div class="flex justify-center my-6">
+  <form action="/run_crawler" method="POST" class="flex space-x-2">
+    <input type="text" name="url" placeholder="Enter URL (e.g. https://example.com)"
+           class="px-4 py-2 w-96 bg-gray-800 border border-gray-700 rounded-md text-white focus:ring focus:ring-orange-500">
+    <button type="submit" class="px-5 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg">
+      Start Crawling
+    </button>
+  </form>
 </div>
 
-<!-- 🚀 Preload SEO Data for JavaScript -->
+<!-- Movable Dashboard Grid -->
+<div class="container mx-auto px-4">
+  <div class="grid-stack">
+
+    <div class="grid-stack-item" gs-w="3" gs-h="2">
+      <div class="bg-gray-800 border border-gray-600 p-5 rounded-lg shadow-md h-full flex flex-col justify-center items-center">
+        <h3 class="text-lg font-semibold">Total URLs Crawled</h3>
+        <p class="text-6xl font-bold text-orange-400 mt-2"><%= @seo_data.count %></p>
+      </div>
+    </div>
+
+
+    <% seo_urls = @seo_data.map { |d| d["url"] }.uniq %>
+
+    <% seo_stats = {
+      "Avg Title Length" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["title_length"].to_i } / arr.size },
+      "Avg Meta Desc Length" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["meta_description_length"].to_i } / arr.size },
+      "Missing ALT %" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["missing_alt_percentage"].to_f } / arr.size },
+      "Word Count" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["word_count"].to_i } / arr.size },
+      "Internal Links" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["internal_links"].to_i } },
+      "External Links" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["external_links"].to_i } },
+      "Broken Links" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| arr.sum { |d| d["broken_links"].to_i } },
+      "Page Size (KB)" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| (arr.sum { |d| d["page_size"].to_f } / 1024).round(2) },
+      "HTTPS Usage (%)" => @seo_data.group_by { |d| d["url"] }.transform_values { |arr| (arr.count { |d| d["is_https"] } * 100.0 / arr.size).round(2) }
+    } %>
+
+    <!-- Define different colors for URLs -->
+    <% colors = %w[#36a2eb #ff6384 #ffce56 #4bc0c0 #9966ff #ff9f40] %>
+
+    <!-- Loop through stats and generate widgets with charts -->
+    <% seo_stats.each_with_index do |(label, values), index| %>
+      <div class="grid-stack-item" gs-w="3" gs-h="3">
+        <div class="bg-gray-800 border border-gray-600 p-5 rounded-lg shadow-md h-full flex flex-col justify-between">
+          <h3 class="text-lg font-semibold"><%= label %></h3>
+          <div class="flex justify-center items-center h-full">
+            <canvas id="<%= label.gsub(/\s+/, '_').downcase %>Chart" class="w-full h-full"></canvas>
+          </div>
+        </div>
+      </div>
+    <% end %>
+
+  </div>
+</div>
+
+<!-- Preload Data for JS -->
 <script>
-    const seoData = <%= @seo_data.to_json %>;
+    const seoUrls = <%= seo_urls.to_json %>;
     const seoStats = <%= seo_stats.to_json %>;
+    const colors = <%= colors.to_json %>;
 </script>
 
 <script src="/dashboard.js"></script>
