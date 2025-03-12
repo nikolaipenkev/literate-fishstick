@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SEO Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack-all.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
@@ -10,17 +9,35 @@
 </head>
 <body class="bg-gray-900 text-white">
 
-<!-- Page Header -->
-<header class="p-6 text-center">
-  <h1 class="text-3xl font-bold">SEO Dashboard</h1>
-  <button class="mt-4 px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg" id="resetButton">
-    Reset Layout
-  </button>
+
+<header class="p-6 flex justify-between items-center">
+  <!-- Title -->
+  <h1 class="text-3xl font-bold flex-1 text-center">SEO Dashboard</h1>
+
+  <!-- Buttons in the top right -->
+  <div class="space-x-4 absolute top-6 right-6">
+    <button id="resetButton"
+            class="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg">
+      Reset Layout
+    </button>
+    <a href="/export">
+      <button class="px-5 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg">
+        Export to CSV
+      </button>
+    </a>
+    <a href="/clear_db" onclick="return confirm('Are you sure you want to delete all SEO data?')">
+      <button class="px-5 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg">
+        Clear Database
+      </button>
+    </a>
+  </div>
 </header>
+
+
 
 <!-- URL Input Form -->
 <div class="flex justify-center my-6">
-  <form action="/run_crawler" method="POST" class="flex space-x-2">
+  <form action="/crawl" method="POST" class="flex space-x-2">
     <input type="text" name="url" placeholder="Enter URL (e.g. https://example.com)"
            class="px-4 py-2 w-96 bg-gray-800 border border-gray-700 rounded-md text-white focus:ring focus:ring-orange-500">
     <button type="submit" class="px-5 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg">
@@ -28,6 +45,7 @@
     </button>
   </form>
 </div>
+
 
 <!-- Movable Dashboard Grid -->
 <div class="container mx-auto px-4">
@@ -81,5 +99,6 @@
 </script>
 
 <script src="/dashboard.js"></script>
+
 </body>
 </html>

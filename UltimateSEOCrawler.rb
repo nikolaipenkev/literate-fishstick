@@ -1,111 +1,159 @@
 require 'nokogiri'
 require 'httparty'
 require 'uri'
-require 'concurrent'
-require 'redis'
+require 'sqlite3'
 require 'json'
-require 'csv'
-require 'net/http'
+require 'concurrent-ruby'
+require_relative 'database.rb'
 
 class UltimateSEOCrawler
   def initialize(start_url, max_depth = 2, thread_pool_size = 10)
     @start_url = start_url
     @max_depth = max_depth
-    @visited_urls = Concurrent::Map.new
-    @thread_pool = Concurrent::FixedThreadPool.new(thread_pool_size)
-    @redis = Redis.new
+    @visited_urls = Concurrent::Hash.new # ✅ Thread-safe hash
+    @thread_pool = Concurrent::FixedThreadPool.new(thread_pool_size) # ✅ Multi-threaded crawling
   end
 
   def crawl(url = @start_url, depth = 0)
-    return if depth > @max_depth || @redis.exists?("crawled:#{url}")
+    return if depth > @max_depth || already_crawled?(url) # ✅ Avoid revisits
 
-    @visited_urls[url] = true
-    @redis.set("crawled:#{url}", "true")
-    @thread_pool.post { process_page(url, depth) }
+    @visited_urls[url] = true # ✅ Mark URL as visited
+
+    # ✅ Now running the whole process in the thread pool
+    @thread_pool.post do
+      process_page(url, depth)
+    end
   end
 
   def process_page(url, depth)
     puts "Crawling: #{url}"
     start_time = Time.now
-    response = HTTParty.get(url, follow_redirects: true, timeout: 10) rescue nil
-    return unless response&.success?
+    response = fetch_page(url)
+    return unless response
 
     load_time = Time.now - start_time
     document = Nokogiri::HTML(response.body)
-    save_seo_data(document, url, response.headers, load_time, response.body.bytesize)
-    extract_links(document, url).each { |link| crawl(link, depth + 1) }
+    seo_data = extract_seo_data(document, url, response, load_time)
+
+    save_to_database(seo_data)
+
+    extract_links(document, url).each do |link|
+      next if @visited_urls[link]
+
+      @visited_urls[link] = true
+      @thread_pool.post { crawl(link, depth + 1) }
+    end
   end
 
-  def save_seo_data(document, url, headers, load_time, page_size)
-    title = document.at('title')&.text&.strip || "No Title"
-    title_length = title.length
+  # ✅ Ensure all threads finish before exiting
+  def wait_for_threads
+    @thread_pool.shutdown
+    @thread_pool.wait_for_termination
+  end
 
-    meta_desc = document.at('meta[name="description"]')&.[]('content')&.strip || "No Meta Description"
-    meta_desc_length = meta_desc.length
+  private
 
-    h1 = document.at('h1')&.text&.strip || "No H1"
-    h2 = document.css('h2').map { |h| h.text.strip }.join(" | ")
-    h3 = document.css('h3').map { |h| h.text.strip }.join(" | ")
+  def fetch_page(url)
+    HTTParty.get(url, follow_redirects: true, timeout: 10) rescue nil
+  end
 
-    canonical = document.at('link[rel="canonical"]')&.[]('href') || url
+  def extract_seo_data(document, url, response, load_time)
+    {
+      url: url,
+      title: document.at('title')&.text&.strip || "No Title",
+      title_length: (document.at('title')&.text&.strip || "").length,
+      meta_description: document.at('meta[name="description"]')&.[]('content')&.strip || "No Meta Description",
+      meta_description_length: (document.at('meta[name="description"]')&.[]('content')&.strip || "").length,
+      h1: document.at('h1')&.text&.strip || "No H1",
+      h2: document.css('h2').map { |h| h.text.strip }.join(" | "),
+      h3: document.css('h3').map { |h| h.text.strip }.join(" | "),
+      canonical: document.at('link[rel="canonical"]')&.[]('href') || url,
+      robots_meta: document.at('meta[name="robots"]')&.[]('content') || response.headers["X-Robots-Tag"] || "No Robots Meta",
+      schema_present: !document.css('script[type="application/ld+json"]').empty? ? 1 : 0,
+      missing_alt_percentage: calculate_missing_alt(document),
+      word_count: document.text.split(/\s+/).size,
+      internal_links: count_internal_links(document, url),
+      external_links: count_external_links(document, url),
+      broken_links: count_broken_links(document),
+      load_time: load_time.round(2),
+      page_size: (response.body.bytesize / 1024.0).round(2),
+      is_https: url.start_with?("https") ? 1 : 0,
+      has_google_analytics: !document.at('script[src*="google-analytics.com"]').nil? ? 1 : 0,
+      has_google_tag_manager: !document.at('script[src*="googletagmanager.com"]').nil? ? 1 : 0
+    }
+  end
 
-    robots_meta = document.at('meta[name="robots"]')&.[]('content') || headers["X-Robots-Tag"] || "No Robots Meta"
+  def already_crawled?(url)
+    result = DB.execute("SELECT crawled FROM seo_data WHERE url = ?", [url]).first
+    result && result["crawled"] == 1
+  end
 
-    has_schema = !document.css('script[type="application/ld+json"]').empty? ||
-      !document.at('meta[property="og:type"]').nil? ||
-      !document.at('meta[name="twitter:card"]').nil?
+  def save_to_database(seo_data)
+    DB.execute("INSERT INTO seo_data (
+      url, title, title_length, meta_description, meta_description_length, h1, h2, h3,
+      canonical, robots_meta, schema_present, missing_alt_percentage, word_count,
+      internal_links, external_links, broken_links, load_time, page_size, is_https,
+      has_google_analytics, has_google_tag_manager, crawled
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)  -- ✅ Set crawled = 1
+    ON CONFLICT(url) DO UPDATE SET  -- ✅ If URL exists, update it
+      title = excluded.title,
+      title_length = excluded.title_length,
+      meta_description = excluded.meta_description,
+      meta_description_length = excluded.meta_description_length,
+      h1 = excluded.h1,
+      h2 = excluded.h2,
+      h3 = excluded.h3,
+      canonical = excluded.canonical,
+      robots_meta = excluded.robots_meta,
+      schema_present = excluded.schema_present,
+      missing_alt_percentage = excluded.missing_alt_percentage,
+      word_count = excluded.word_count,
+      internal_links = excluded.internal_links,
+      external_links = excluded.external_links,
+      broken_links = excluded.broken_links,
+      load_time = excluded.load_time,
+      page_size = excluded.page_size,
+      is_https = excluded.is_https,
+      has_google_analytics = excluded.has_google_analytics,
+      has_google_tag_manager = excluded.has_google_tag_manager,
+      crawled = 1;  -- ✅ Always set to crawled
+    ",
+               [
+                 seo_data[:url], seo_data[:title], seo_data[:title_length], seo_data[:meta_description],
+                 seo_data[:meta_description_length], seo_data[:h1], seo_data[:h2], seo_data[:h3],
+                 seo_data[:canonical], seo_data[:robots_meta],
+                 seo_data[:schema_present], seo_data[:missing_alt_percentage], seo_data[:word_count],
+                 seo_data[:internal_links], seo_data[:external_links], seo_data[:broken_links],
+                 seo_data[:load_time], seo_data[:page_size], seo_data[:is_https],
+                 seo_data[:has_google_analytics], seo_data[:has_google_tag_manager]
+               ])
+  end
 
+  def calculate_missing_alt(document)
     images = document.css('img')
     missing_alt = images.count { |img| img['alt'].nil? || img['alt'].strip.empty? }
     total_images = images.size
-    alt_missing_percentage = total_images.zero? ? 0 : ((missing_alt.to_f / total_images) * 100).round(2)
+    total_images.zero? ? 0 : ((missing_alt.to_f / total_images) * 100).round(2)
+  end
 
-    word_count = document.text.split(/\s+/).size
-
+  def count_internal_links(document, base_url)
     links = document.css('a[href]').map { |a| a['href'] }
-    internal_links = links.select { |l| l.start_with?('/') || l.include?(URI.parse(@start_url).host) }.size
-    external_links = links.size - internal_links
+    links.count { |l| l.start_with?('/') || l.include?(URI.parse(base_url).host) }
+  end
 
-    broken_links = links.count { |link| link_broken?(link) }
+  def count_external_links(document, base_url)
+    links = document.css('a[href]').map { |a| a['href'] }
+    links.count { |l| !l.start_with?('/') && !l.include?(URI.parse(base_url).host) }
+  end
 
-    is_https = url.start_with?("https")
-
-    has_google_analytics = !!document.at('script[src*="google-analytics.com"]')
-    has_google_tag_manager = !!document.at('script[src*="googletagmanager.com"]')
-
-    seo_data = {
-      url: url,
-      title: title,
-      title_length: title_length,
-      meta_description: meta_desc,
-      meta_description_length: meta_desc_length,
-      h1: h1,
-      h2: h2,
-      h3: h3,
-      canonical: canonical,
-      robots_meta: robots_meta,
-      has_schema: has_schema,
-      missing_alt_percentage: "#{alt_missing_percentage}%",
-      word_count: word_count,
-      internal_links: internal_links,
-      external_links: external_links,
-      broken_links: broken_links,
-      load_time: "#{load_time.round(2)}s",
-      page_size: "#{(page_size / 1024.0).round(2)} KB",
-      is_https: is_https,
-      has_google_analytics: has_google_analytics,
-      has_google_tag_manager: has_google_tag_manager
-    }
-
-    @redis.set("seo:#{url}", seo_data.to_json)
+  def count_broken_links(document)
+    document.css('a[href]').count { |a| link_broken?(a['href']) }
   end
 
   def link_broken?(url)
     return false if url.nil? || url.empty?
-
     uri = URI.parse(url) rescue nil
     return false unless uri.is_a?(URI::HTTP) || uri.is_a?(URI::HTTPS)
-
     res = Net::HTTP.get_response(uri) rescue nil
     res.nil? || res.code.to_i >= 400
   end
@@ -121,47 +169,4 @@ class UltimateSEOCrawler
   rescue URI::InvalidURIError
     nil
   end
-
-  def export_results
-    File.open("seo_results.txt", "w", encoding: "UTF-8") do |file|
-      @redis.keys("seo:*").each do |key|
-        row = JSON.parse(@redis.get(key))
-
-        file.puts "URL:                          #{row["url"]}"
-        file.puts "Title:                        #{row["title"]}"
-        file.puts "Title Length:                 #{row["title_length"]}"
-        file.puts "Meta Description:             #{row["meta_description"]}"
-        file.puts "Meta Description Length:      #{row["meta_description_length"]}"
-        file.puts "H1:                           #{row["h1"]}"
-        file.puts "H2:                           #{row["h2"]}"
-        file.puts "H3:                           #{row["h3"]}"
-        file.puts "Canonical:                    #{row["canonical"]}"
-        file.puts "Robots Meta:                  #{row["robots_meta"]}"
-        file.puts "Schema Present:               #{row["has_schema"]}"
-        file.puts "Missing ALT %:                #{row["missing_alt_percentage"]}"
-        file.puts "Word Count:                   #{row["word_count"]}"
-        file.puts "Internal Links:               #{row["internal_links"]}"
-        file.puts "External Links:               #{row["external_links"]}"
-        file.puts "Broken Links:                 #{row["broken_links"]}"
-        file.puts "Load Time:                    #{row["load_time"]}"
-        file.puts "Page Size:                    #{row["page_size"]}"
-        file.puts "HTTPS:                        #{row["is_https"]}"
-        file.puts "Google Analytics Present:     #{row["has_google_analytics"]}"
-        file.puts "Google Tag Manager Present:   #{row["has_google_tag_manager"]}"
-        file.puts "-" * 70  # Adds a separator line for better readability
-      end
-    end
-    puts "Results exported to seo_results.txt"
-  end
-
-  def run
-    crawl(@start_url)
-    @thread_pool.shutdown
-    @thread_pool.wait_for_termination
-    export_results
-  end
 end
-
-# Run the crawler for Automation Test Store
-crawler = UltimateSEOCrawler.new('https://automationteststore.com', 2, 10)
-crawler.run
