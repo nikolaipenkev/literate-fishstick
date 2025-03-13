@@ -1,7 +1,6 @@
 document.addEventListener("DOMContentLoaded", function () {
     console.log("🚀 SEO Dashboard Loaded");
 
-    // Initialize grid using GridStack
     const grid = GridStack.init({
         cellHeight: 120,
         verticalMargin: 10,
@@ -9,24 +8,42 @@ document.addEventListener("DOMContentLoaded", function () {
         resizable: { handles: "se, sw, ne, nw" }
     });
 
-    // Reset grid layout when the reset button is clicked
+    document.getElementById("sendEmailButton").addEventListener("click", function () {
+        document.getElementById("emailModal").classList.remove("hidden");
+    });
+
+    document.getElementById("cancelEmailSend").addEventListener("click", function () {
+        document.getElementById("emailModal").classList.add("hidden");
+    });
+
+    document.getElementById("confirmEmailSend").addEventListener("click", function () {
+        const email = document.getElementById("emailInput").value.trim();
+        if (!email) {
+            alert("Please enter a valid email.");
+            return;
+        }
+
+        fetch('/send_email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email })
+        })
+            .then(response => response.text())
+            .then(message => {
+                alert(message);
+                document.getElementById("emailModal").classList.add("hidden");
+            })
+            .catch(error => console.error("Error sending email:", error));
+    });
+
     document.getElementById("resetButton").addEventListener("click", function () {
         localStorage.removeItem("grid-stack-layout");
         location.reload();
     });
 
-    // Global storage for chart instances for later updates
     window.charts = {};
 
-    /**
-     * Creates a chart on the given canvas, stores the Chart.js instance for future updates.
-     *
-     * @param {string} canvasId - The id of the canvas element.
-     * @param {string} statKey - The key associated with this chart data (used as an identifier).
-     * @param {string} type - The type of chart ("bar" or "line").
-     * @param {Object} data - The data object to display.
-     * @param {Array} colors - An array of colors for the chart.
-     */
+
     function createChart(canvasId, statKey, type, data, colors) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -94,16 +111,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 maintainAspectRatio: false,
                 responsive: true,
                 scales: {
-                    x: { display: false } // Remove x-axis completely
+                    x: { display: false }
                 }
             }
         });
 
-        // Save the chart instance using the statKey as an identifier
+
         window.charts[statKey] = chartInstance;
     }
 
-    // Create tooltip div for legend hover effect
+
     const tooltipDiv = document.createElement("div");
     tooltipDiv.id = "legendTooltip";
     tooltipDiv.style.position = "absolute";
@@ -116,19 +133,13 @@ document.addEventListener("DOMContentLoaded", function () {
     tooltipDiv.style.transition = "opacity 0.2s ease";
     document.body.appendChild(tooltipDiv);
 
-    // Generate charts using initial seoStats object.
-    // Assumes that global objects `seoStats`, `seoUrls`, and `colors` are defined.
+
     Object.keys(seoStats).forEach((stat, index) => {
         const id = `${stat.replace(/\s+/g, "_").toLowerCase()}Chart`;
         const chartType = index % 2 === 0 ? "bar" : "line"; // Alternate chart types
         createChart(id, stat, chartType, seoStats[stat], colors);
     });
 
-    /**
-     * Updates each chart with new data.
-     *
-     * @param {Object} newData - New SEO data object returned from the Sinatra endpoint.
-     */
     function updateCharts(newData) {
         // Loop through each stat in the new data object
         Object.keys(newData).forEach(stat => {

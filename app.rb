@@ -5,6 +5,7 @@ require 'rufus-scheduler'
 require 'uri'
 require 'csv'
 require 'sqlite3'
+require 'mail'
 require_relative 'UltimateSEOCrawler'
 require_relative 'database'
 
@@ -24,6 +25,19 @@ class DashboardApp < Sinatra::Base
     scheduler.every '1m' do
       puts "[#{Time.now}] Starting crawler..."
       @crawler.crawl
+    end
+  end
+
+  configure do
+    Mail.defaults do
+      delivery_method :smtp, {
+        address: "smtp.gmail.com",
+        port: 587,
+        user_name: ENV['EMAIL_USER'],
+        password: ENV['EMAIL_PASS'],
+        authentication: 'plain',
+        enable_starttls_auto: true
+      }
     end
   end
 
@@ -110,6 +124,30 @@ class DashboardApp < Sinatra::Base
     end
 
     seo_stats.to_json
+  end
+
+  post '/send_email' do
+    request_body = JSON.parse(request.body.read)
+    recipient_email = request_body["email"]
+
+    generate_csv
+
+    mail = Mail.new do
+      from     ENV['EMAIL_USER']
+      to       recipient_email
+      subject  "SEO Report - #{Time.now.strftime('%Y-%m-%d')}"
+      body     "Attached is your SEO report in CSV format."
+      add_file "seo_report.csv"
+    end
+
+    begin
+      mail.deliver!
+      status 200
+      "Email sent successfully to #{recipient_email}!"
+    rescue => e
+      status 500
+      "Failed to send email: #{e.message}"
+    end
   end
 
 
