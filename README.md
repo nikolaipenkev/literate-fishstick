@@ -21,7 +21,7 @@ bundle install
 Run the crawler on a target website:
 
 ```bash
-ruby crawler.rb
+ruby app.rb
 ```
 
 ## 📝 Configuration
