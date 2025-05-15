@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", function () {
         animate: true,
         resizable: { handles: "se, sw, ne, nw" }
     });
-
+/*
     document.getElementById("sendEmailButton").addEventListener("click", function () {
         document.getElementById("emailModal").classList.remove("hidden");
     });
@@ -35,7 +35,7 @@ document.addEventListener("DOMContentLoaded", function () {
             })
             .catch(error => console.error("Error sending email:", error));
     });
-
+*/
     document.getElementById("resetButton").addEventListener("click", function () {
         localStorage.removeItem("grid-stack-layout");
         location.reload();

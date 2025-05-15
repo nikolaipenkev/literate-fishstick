@@ -125,7 +125,7 @@ class DashboardApp < Sinatra::Base
 
     seo_stats.to_json
   end
-
+=begin
   post '/send_email' do
     request_body = JSON.parse(request.body.read)
     recipient_email = request_body["email"]
@@ -149,6 +149,7 @@ class DashboardApp < Sinatra::Base
       "Failed to send email: #{e.message}"
     end
   end
+=end
 
 
 end
